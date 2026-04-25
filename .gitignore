@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.venv/
+venv/
+checkpoints/
+logs/
+wandb/
+results/**/*.pt
+results/**/*.bin
+results/**/*.ckpt
+results/**/*.safetensors
