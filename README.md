@@ -29,22 +29,37 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## One-Command Run (Experiments + Diagrams)
+## Notebook-First Workflow (Recommended)
+
+Primary notebooks:
+
+- `notebooks/lora_project_colab_quick.ipynb` (smoke test)
+- `notebooks/lora_project_colab_full.ipynb` (main run)
+
+Both notebooks:
+
+- implement LoRA in notebook cells (from scratch)
+- run training/evaluation in notebook cells
+- generate figures in notebook cells
+- auto-export artifacts as a zip and trigger download in Colab
+
+## Script Workflow (Optional)
+
+If you still want script execution:
 
 ```bash
 chmod +x scripts/run_everything.sh
 ./scripts/run_everything.sh
 ```
 
-This runs:
-
-- GLUE: SST-2 and MRPC (full fine-tune + LoRA ranks 1/4/8/16)
-- WikiText-2: full fine-tune + LoRA ranks 1/4/8/16
-- Poster diagrams for SST-2 and MRPC via `code/plot_results.py`
-
 ## Poster Diagram Outputs
 
-Generated under `results/figures/`:
+Generated under notebook-specific folders:
+
+- quick: `results/figures_quick/`
+- full: `results/figures_full/`
+
+Figure files:
 
 - `01_performance_vs_method_<task>.png`
 - `02_performance_vs_trainable_params_<task>.png`
@@ -55,19 +70,12 @@ If you want to include non-LoRA baselines (linear probe, adapters, prefix tuning
 
 - `results/manual_methods.csv`
 
-## Colab / Notebook Run
+## Colab Run
 
-Use:
-
-- `notebooks/lora_project_colab.ipynb`
-- `notebooks/lora_project_colab_quick.ipynb` (fast smoke mode)
-
-It is set up to:
-
-1. clone or open the repo in Colab
-2. install dependencies
-3. run the full pipeline
-4. generate and list poster figures
+1. Open one of the notebook files above in Colab.
+2. Set `REPO_URL`.
+3. Run cells top-to-bottom.
+4. The notebook auto-creates a zip in `results/exports/`, triggers download, and copies to Drive at `/content/drive/MyDrive/lora_project_exports/` if Drive is mounted.
 
 Quick shell mode (non-notebook):
 
