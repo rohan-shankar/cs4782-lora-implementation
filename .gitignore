@@ -11,3 +11,4 @@ results/**/*.pt
 results/**/*.bin
 results/**/*.ckpt
 results/**/*.safetensors
+results/.mplconfig/

@@ -29,6 +29,53 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## One-Command Run (Experiments + Diagrams)
+
+```bash
+chmod +x scripts/run_everything.sh
+./scripts/run_everything.sh
+```
+
+This runs:
+
+- GLUE: SST-2 and MRPC (full fine-tune + LoRA ranks 1/4/8/16)
+- WikiText-2: full fine-tune + LoRA ranks 1/4/8/16
+- Poster diagrams for SST-2 and MRPC via `code/plot_results.py`
+
+## Poster Diagram Outputs
+
+Generated under `results/figures/`:
+
+- `01_performance_vs_method_<task>.png`
+- `02_performance_vs_trainable_params_<task>.png`
+- `03_performance_vs_lora_rank_<task>.png`
+- `04_memory_savings_<task>.png` (or storage variant)
+
+If you want to include non-LoRA baselines (linear probe, adapters, prefix tuning), fill:
+
+- `results/manual_methods.csv`
+
+## Colab / Notebook Run
+
+Use:
+
+- `notebooks/lora_project_colab.ipynb`
+- `notebooks/lora_project_colab_quick.ipynb` (fast smoke mode)
+
+It is set up to:
+
+1. clone or open the repo in Colab
+2. install dependencies
+3. run the full pipeline
+4. generate and list poster figures
+
+Quick shell mode (non-notebook):
+
+```bash
+chmod +x scripts/run_quick.sh
+./scripts/run_quick.sh
+```
+
 ## GLUE (BERT): Baseline vs LoRA
 
 Full fine-tuning:
@@ -87,4 +134,6 @@ Each run writes:
 - LoRA configuration and replaced module names
 - total/trainable parameter counts
 - peak GPU memory usage
+- checkpoint size
+- per-epoch history for training curves
 - best validation metrics (`accuracy`/`f1`/`mcc` or `perplexity`)

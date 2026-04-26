@@ -113,6 +113,7 @@ def main() -> None:
     global_step = 0
     best_ppl = float("inf")
     best = {}
+    history = []
     for epoch in range(args.epochs):
         model.train()
         train_losses = []
@@ -140,6 +141,14 @@ def main() -> None:
 
         eval_loss = float(np.mean(eval_losses))
         perplexity = float(math.exp(eval_loss))
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": float(np.mean(train_losses)) if train_losses else float("nan"),
+                "eval_loss": eval_loss,
+                "perplexity": perplexity,
+            }
+        )
         if perplexity < best_ppl:
             best_ppl = perplexity
             best = {"eval_loss": eval_loss, "perplexity": perplexity, "epoch": epoch + 1}
@@ -151,6 +160,8 @@ def main() -> None:
     peak_mem_gb = 0.0
     if device.type == "cuda":
         peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    ckpt_path = output_dir / "best_model.pt"
+    checkpoint_size_mb = ckpt_path.stat().st_size / (1024**2) if ckpt_path.exists() else 0.0
 
     summary = {
         "dataset": "wikitext-2-raw-v1",
@@ -166,7 +177,9 @@ def main() -> None:
         "trainable_params": trainable_params,
         "trainable_ratio": trainable_params / total_params,
         "peak_gpu_memory_gb": peak_mem_gb,
+        "checkpoint_size_mb": checkpoint_size_mb,
         "best_metrics": best,
+        "history": history,
     }
     with open(output_dir / "summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

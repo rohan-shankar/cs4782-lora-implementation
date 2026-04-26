@@ -162,6 +162,7 @@ def main() -> None:
     global_step = 0
     best_acc = -1.0
     best_metrics = {}
+    history = []
 
     for epoch in range(args.epochs):
         model.train()
@@ -198,6 +199,7 @@ def main() -> None:
         metrics = compute_metrics(args.task_name, logits_np, labels_np)
         metrics["train_loss"] = float(np.mean(losses)) if losses else float("nan")
         metrics["epoch"] = epoch + 1
+        history.append(dict(metrics))
 
         if metrics["accuracy"] > best_acc:
             best_acc = metrics["accuracy"]
@@ -210,6 +212,8 @@ def main() -> None:
     peak_mem_gb = 0.0
     if device.type == "cuda":
         peak_mem_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    ckpt_path = output_dir / "best_model.pt"
+    checkpoint_size_mb = ckpt_path.stat().st_size / (1024**2) if ckpt_path.exists() else 0.0
 
     summary = {
         "task_name": args.task_name,
@@ -225,7 +229,9 @@ def main() -> None:
         "trainable_params": trainable_params,
         "trainable_ratio": trainable_params / total_params,
         "peak_gpu_memory_gb": peak_mem_gb,
+        "checkpoint_size_mb": checkpoint_size_mb,
         "best_metrics": best_metrics,
+        "history": history,
     }
 
     with open(output_dir / "summary.json", "w", encoding="utf-8") as f:
