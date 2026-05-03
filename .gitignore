@@ -12,3 +12,6 @@ results/**/*.bin
 results/**/*.ckpt
 results/**/*.safetensors
 results/.mplconfig/
+results/full_outputs.zip
+results/extracted_data/
+*.zip

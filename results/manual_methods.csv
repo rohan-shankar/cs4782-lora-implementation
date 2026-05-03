@@ -1,7 +1,0 @@
-task,method,metric,trainable_params,peak_gpu_memory_gb,checkpoint_size_mb
-sst2,Linear Probe,,,,
-sst2,Adapters,,,,
-sst2,Prefix Tuning,,,,
-mrpc,Linear Probe,,,,
-mrpc,Adapters,,,,
-mrpc,Prefix Tuning,,,,

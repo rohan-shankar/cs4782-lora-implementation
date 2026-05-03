@@ -1,0 +1,285 @@
+\documentclass[11pt,twocolumn]{article}
+
+% ── Page layout ────────────────────────────────────────────────────────────────
+\usepackage[margin=0.58in,top=0.52in,bottom=0.55in,columnsep=0.22in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[numbers,sort&compress]{natbib}
+
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\setlist{nosep,leftmargin=*}
+\captionsetup{font=small,labelfont=bf,skip=2pt}
+\captionsetup[subfigure]{font=small,labelfont=bf,skip=1pt}
+
+% Compact but still readable 11pt body text.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1.5pt}
+\setlength{\textfloatsep}{5pt plus 1pt minus 1pt}
+\setlength{\floatsep}{4pt plus 1pt minus 1pt}
+\setlength{\intextsep}{4pt plus 1pt minus 1pt}
+\setlength{\abovedisplayskip}{3pt}
+\setlength{\belowdisplayskip}{3pt}
+\titlespacing*{\section}{0pt}{5pt}{2pt}
+\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+\titleformat{\section}{\normalfont\bfseries\normalsize}{\thesection.}{0.45em}{}
+\titleformat{\subsection}{\normalfont\bfseries\small}{\thesubsection.}{0.45em}{}
+
+% Change this if your figures live somewhere else.
+\newcommand{\figdir}{figures}
+
+% Allows the report to compile even if a figure is missing locally.
+\newcommand{\maybeincludegraphics}[2][]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \fbox{\parbox[c][1.08in][c]{0.92\linewidth}{\centering\small Missing figure:\\[-1pt]\texttt{\detokenize{#2}}}}%
+  }%
+}
+
+\begin{document}
+
+\twocolumn[{%
+\centering
+{\Large\bfseries Reimplementing LoRA: Low-Rank Adaptation of Large Language Models\par}
+\vspace{2pt}
+{\normalsize Rohan Shankar\textsuperscript{1} \quad Harshaan Chugh\textsuperscript{1}\par}
+{\small \textsuperscript{1}Cornell University, CS 4782 --- Spring 2026 \quad
+\texttt{\{rs2656,hsc53\}@cornell.edu}\par}
+\vspace{3pt}
+\rule{\textwidth}{0.4pt}
+\vspace{3pt}
+}]
+
+\noindent\textbf{Abstract.}
+We reimplemented LoRA~\cite{hu2022lora} from scratch and evaluated it on SST-2 and MRPC with BERT-base and on WikiText-2 with GPT-2 Small. LoRA achieved \textbf{93.1\%} validation accuracy on SST-2 and \textbf{89.9\%} validation F1 on MRPC while training only 0.27\% of parameters. On WikiText-2, LoRA reached 24.27 perplexity versus 23.60 for full fine-tuning while using 99.5\% fewer trainable parameters. Overall, our results support LoRA's qualitative claim: low-rank task updates can preserve strong performance with dramatically fewer trainable weights.
+
+\section{Introduction}
+Large pretrained language models are expensive to adapt because full fine-tuning updates every parameter and usually requires storing a separate full model copy per task. We reproduce \emph{LoRA: Low-Rank Adaptation of Large Language Models} by Hu, Shen, Wallis, Allen-Zhu, Li, Wang, Wang, and Chen~\cite{hu2022lora}. The paper observes that downstream weight updates often have low intrinsic rank and proposes freezing pretrained weights while learning a low-rank additive update for selected matrices.
+
+Our project reimplements LoRA directly rather than using PEFT or adapter libraries. We test whether the same efficiency-quality tradeoff appears in a smaller reproducible setting: BERT-base~\cite{devlin2019bert} on GLUE tasks SST-2 and MRPC~\cite{wang2019glue,socher2013sst,dolan2005mrpc}, and GPT-2 Small~\cite{radford2019language} on WikiText-2~\cite{merity2017wikitext}.
+
+\section{Chosen Result}
+We aimed to reproduce the paper's central empirical result: LoRA can match or approach full fine-tuning performance while training only a small number of low-rank parameters. This result is tied to the paper's low-rank update equation, $\Delta W=BA$, and its benchmark comparisons showing competitive adaptation with far fewer trainable weights~\cite{hu2022lora}.
+
+We chose this result because it tests LoRA's main scientific claim rather than only a surface-level implementation detail. If task adaptation is well approximated by a low-rank update, then LoRA should remain competitive with full fine-tuning, performance should improve with rank until saturation, and the trainable-parameter budget should be much smaller.
+
+\section{Methodology}
+\subsection{LoRA Layer Design}
+For a frozen pretrained weight matrix $W_0\in\mathbb{R}^{d_{out}\times d_{in}}$, LoRA learns two small matrices $A\in\mathbb{R}^{r\times d_{in}}$ and $B\in\mathbb{R}^{d_{out}\times r}$:
+\begin{equation}
+  h = W_0x + \frac{\alpha}{r}BAx.
+  \label{eq:lora}
+\end{equation}
+Here $r$ is the LoRA rank and $\alpha/r$ scales the update. We initialize $A$ with Kaiming uniform initialization and $B$ to zeros so that $\Delta W=0$ at the start of training. This preserves the base model's initial behavior before task-specific learning begins.
+
+We implemented \texttt{LoRALinear} for standard \texttt{nn.Linear} modules and \texttt{LoRAConv1D} for GPT-2's \texttt{Conv1D} attention projection. Both wrappers compute the frozen base path and the low-rank residual path in parallel, then add the scaled residual.
+
+\subsection{Injection, Freezing, and Models}
+Our \texttt{apply\_lora\_to\_model()} routine traverses the model graph and replaces modules whose names match target suffixes. For BERT-base, LoRA is inserted into the \texttt{query} and \texttt{value} projections in all transformer layers. For GPT-2 Small, LoRA is inserted into \texttt{c\_attn}, GPT-2's combined attention projection. After replacement, pretrained parameters are frozen; only \texttt{lora\_A}, \texttt{lora\_B}, and, for classification, the task head are trainable.
+
+\subsection{Datasets, Metrics, and Training Setup}
+For classification, we evaluate SST-2 using validation accuracy and MRPC using validation F1. For language modeling, we evaluate WikiText-2 using validation perplexity. We vary $r\in\{1,4,8,16\}$ to test the low-rank capacity hypothesis.
+
+For BERT-base experiments, LoRA is applied to \texttt{query,value}. For GPT-2 Small experiments, LoRA is applied to \texttt{c\_attn}. Our scripts and notebooks support these configurations and produce the reported tables and figures. Because our experiments used limited Colab compute, this is a smaller-scale reproduction: the goal is to reproduce the qualitative trend---competitive performance with far fewer trainable parameters---rather than exactly match every original paper number.
+
+\section{Results \& Analysis}
+Table~\ref{tab:results} summarizes the best validation metrics. On SST-2 and MRPC, LoRA outperformed our full fine-tuning baselines: $r=8$ achieved 93.1\% accuracy on SST-2 and 89.9\% F1 on MRPC while training only 0.27\% of parameters. This supports the main LoRA claim that constrained low-rank adaptation can be highly parameter-efficient.
+
+\begin{table}[H]
+\centering
+\caption{Best validation metrics. Parentheses show percent trainable parameters.}
+\label{tab:results}
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{0.98}
+{\small
+\begin{tabular}{@{}llrl@{}}
+\toprule
+\textbf{Task} & \textbf{Method} & \textbf{Params} & \textbf{Metric} \\
+\midrule
+SST-2 & Full FT & 109.5M & 85.3\% acc \\
+      & LoRA $r=1$  & 38K (0.04\%) & 92.0\% acc \\
+      & LoRA $r=4$  & 149K (0.14\%) & 92.7\% acc \\
+      & LoRA $r=8$  & 296K (0.27\%) & \textbf{93.1\% acc} \\
+      & LoRA $r=16$ & 591K (0.54\%) & 92.7\% acc \\
+\midrule
+MRPC  & Full FT & 109.5M & 82.6\% F1 \\
+      & LoRA $r=1$  & 38K (0.04\%) & 88.8\% F1 \\
+      & LoRA $r=4$  & 149K (0.14\%) & 88.6\% F1 \\
+      & LoRA $r=8$  & 296K (0.27\%) & \textbf{89.9\% F1} \\
+      & LoRA $r=16$ & 591K (0.54\%) & 89.6\% F1 \\
+\midrule
+Wiki-2 & Full FT & 124.4M & \textbf{23.60 ppl} \\
+       & LoRA $r=1$  & 37K (0.03\%) & 24.99 ppl \\
+       & LoRA $r=4$  & 147K (0.12\%) & 24.43 ppl \\
+       & LoRA $r=8$  & 295K (0.24\%) & 24.34 ppl \\
+       & LoRA $r=16$ & 590K (0.47\%) & 24.27 ppl \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The main discrepancy is that our full fine-tuning baselines underperformed LoRA on the GLUE tasks. We attribute this to overfitting and optimization sensitivity: full fine-tuning updates 109.5M parameters on relatively small classification datasets, while LoRA restricts learning to a lower-dimensional subspace and acts as an implicit regularizer.
+
+On WikiText-2, full fine-tuning remained slightly better: 23.60 perplexity versus 24.27 for LoRA at $r=16$. This is reasonable because language modeling may benefit from updating more of the model, and our GPT-2 setup only targeted \texttt{c\_attn}. Still, the gap was small relative to the parameter savings.
+
+The rank ablation supports the low-rank hypothesis. Classification performance improves from $r=1$ to $r=8$ and then saturates or slightly declines at $r=16$. For WikiText-2, perplexity improves steadily through $r=16$. This suggests that useful rank depends on task type and scale: small classification tasks need few adaptation degrees of freedom, while language modeling benefits from more capacity. LoRA also reduced peak GPU memory by up to 58\% on SST-2, reinforcing its practical value.
+
+\section{Reflections}
+This project showed that parameter-efficient fine-tuning depends on both the mathematical idea and the implementation details. The most important choices were which modules to replace, whether base weights were truly frozen, how $A$ and $B$ were initialized, and whether the task head remained trainable.
+
+We also learned that reproduction under limited compute should focus on qualitative evidence, not only exact numerical matching. Our results reproduce LoRA's key trend: low-rank updates can achieve strong downstream performance with orders of magnitude fewer trainable parameters. Given more time, we would run multiple seeds, tune full fine-tuning baselines more carefully, test additional insertion targets such as key/output/MLP projections, and add LoRA weight merging to measure inference latency directly.
+
+{
+\begin{thebibliography}{10}
+\setlength{\itemsep}{-1pt}
+\setlength{\parskip}{0pt}
+
+\bibitem[1]{hu2022lora}
+E.~J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen. LoRA: Low-rank adaptation of large language models. \emph{ICLR}, 2022.
+
+\bibitem[2]{devlin2019bert}
+J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova. BERT: Pre-training of deep bidirectional transformers for language understanding. \emph{NAACL-HLT}, 2019.
+
+\bibitem[3]{radford2019language}
+A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever. Language models are unsupervised multitask learners. OpenAI technical report, 2019.
+
+\bibitem[4]{wang2019glue}
+A. Wang, A. Singh, J. Michael, F. Hill, O. Levy, and S. Bowman. GLUE: A multi-task benchmark and analysis platform for natural language understanding. \emph{ICLR}, 2019.
+
+\bibitem[5]{socher2013sst}
+R. Socher, A. Perelygin, J. Wu, J. Chuang, C. Manning, A. Ng, and C. Potts. Recursive deep models for semantic compositionality over a sentiment treebank. \emph{EMNLP}, 2013.
+
+\bibitem[6]{dolan2005mrpc}
+W. Dolan and C. Brockett. Automatically constructing a corpus of sentential paraphrases. \emph{IWP}, 2005.
+
+\bibitem[7]{merity2017wikitext}
+S. Merity, C. Xiong, J. Bradbury, and R. Socher. Pointer sentinel mixture models. \emph{ICLR}, 2017.
+
+\bibitem[8]{paszke2019pytorch}
+A. Paszke et al. PyTorch: An imperative style, high-performance deep learning library. \emph{NeurIPS}, 2019.
+
+\bibitem[9]{wolf2020transformers}
+T. Wolf et al. Transformers: State-of-the-art natural language processing. \emph{EMNLP: System Demonstrations}, 2020.
+
+\bibitem[10]{lhoest2021datasets}
+Q. Lhoest et al. Datasets: A community library for natural language processing. \emph{EMNLP: System Demonstrations}, 2021.
+
+\end{thebibliography}
+}
+
+\clearpage
+\onecolumn
+\section*{Figures}
+We decided to put the figures at the end to support the report without interrupting our narrative sections so it could be more clear that we were under the two page limit minus images.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/01_performance_vs_method_sst2.png}
+  \caption{SST-2}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/01_performance_vs_method_mrpc.png}
+  \caption{MRPC}
+\end{subfigure}
+\caption{Performance comparison between full fine-tuning and LoRA ranks.}
+\label{fig:perf-method}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/02_performance_vs_trainable_params_sst2.png}
+  \caption{SST-2}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/02_performance_vs_trainable_params_mrpc.png}
+  \caption{MRPC}
+\end{subfigure}
+\caption{Performance versus trainable parameters. LoRA occupies the high-performance, low-parameter region.}
+\label{fig:perf-params}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/03_performance_vs_lora_rank_sst2.png}
+  \caption{SST-2}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/03_performance_vs_lora_rank_mrpc.png}
+  \caption{MRPC}
+\end{subfigure}
+\caption{Rank ablation. Classification performance improves at low rank and saturates around $r=8$.}
+\label{fig:rank-ablation}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/04_memory_savings_sst2.png}
+  \caption{SST-2}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/04_memory_savings_mrpc.png}
+  \caption{MRPC}
+\end{subfigure}
+\caption{Peak GPU memory comparison. LoRA reduces the memory required for adaptation.}
+\label{fig:memory}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/05_training_curves_sst2.png}
+  \caption{SST-2}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.47\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/05_training_curves_mrpc.png}
+  \caption{MRPC}
+\end{subfigure}
+\caption{Training curves for full fine-tuning and LoRA variants.}
+\label{fig:curves}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.31\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/paramsvsrank.png}
+  \caption{Trainable params vs. rank}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.31\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/perfvslorarank.png}
+  \caption{GLUE metrics vs. rank}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.31\textwidth}
+  \centering
+  \maybeincludegraphics[width=\linewidth]{\figdir/perplexityvsrank.png}
+  \caption{GPT-2 perplexity vs. rank}
+\end{subfigure}
+\caption{Cross-model summary of rank, parameter count, and language-modeling perplexity.}
+\label{fig:summary}
+\end{figure}
+
+\end{document}
