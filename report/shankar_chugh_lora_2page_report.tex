@@ -134,9 +134,9 @@ On WikiText-2, full fine-tuning remained slightly better: 23.60 perplexity versu
 The rank ablation supports the low-rank hypothesis. Classification performance improves from $r=1$ to $r=8$ and then saturates or slightly declines at $r=16$. For WikiText-2, perplexity improves steadily through $r=16$. This suggests that useful rank depends on task type and scale: small classification tasks need few adaptation degrees of freedom, while language modeling benefits from more capacity. LoRA also reduced peak GPU memory by up to 58\% on SST-2, reinforcing its practical value.
 
 \section{Reflections}
-This project showed that parameter-efficient fine-tuning depends on both the mathematical idea and the implementation details. The most important choices were which modules to replace, whether base weights were truly frozen, how $A$ and $B$ were initialized, and whether the task head remained trainable.
+This project taught us that parameter-efficient fine-tuning depends on both the mathematical idea and the implementation details. The most important choices were which modules to replace, whether base weights were truly frozen, how $A$ and $B$ were initialized, and whether the task head remained trainable.
 
-We also learned that reproduction under limited compute should focus on qualitative evidence, not only exact numerical matching. Our results reproduce LoRA's key trend: low-rank updates can achieve strong downstream performance with orders of magnitude fewer trainable parameters. Given more time, we would run multiple seeds, tune full fine-tuning baselines more carefully, test additional insertion targets such as key/output/MLP projections, and add LoRA weight merging to measure inference latency directly.
+Our results reproduce LoRA's key trend: low-rank updates can achieve strong downstream performance with orders of magnitude fewer trainable parameters. Given more time, we would run multiple seeds, tune full fine-tuning baselines more carefully, test additional insertion targets such as key/output/MLP projections, and add LoRA weight merging to measure inference latency directly. We would also explore rank-adaptive methods that learn a per-layer rank automatically rather than fixing $r$ as a global hyperparameter.
 
 {
 \begin{thebibliography}{10}
@@ -179,7 +179,7 @@ Q. Lhoest et al. Datasets: A community library for natural language processing. 
 \clearpage
 \onecolumn
 \section*{Figures}
-We decided to put the figures at the end to support the report without interrupting our narrative sections so it could be more clear that we were under the two page limit minus images.
+All figures are collected here after the 2-page narrative so the text pages remain uninterrupted and clearly within the page limit (figures excluded per the report instructions).
 
 \begin{figure}[H]
 \centering
