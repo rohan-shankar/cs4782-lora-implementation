@@ -61,17 +61,17 @@
 }]
 
 \noindent\textbf{Abstract.}
-We reimplemented LoRA~\cite{hu2022lora} from scratch and evaluated it on SST-2 and MRPC with BERT-base and on WikiText-2 with GPT-2 Small. LoRA achieved \textbf{93.1\%} validation accuracy on SST-2 and \textbf{89.9\%} validation F1 on MRPC while training only 0.27\% of parameters. On WikiText-2, LoRA reached 24.27 perplexity versus 23.60 for full fine-tuning while using 99.5\% fewer trainable parameters. Overall, our results support LoRA's qualitative claim: low-rank task updates can preserve strong performance with dramatically fewer trainable weights.
+We reimplemented LoRA~\cite{hu2022lora} from scratch and tested it on SST-2 and MRPC with BERT-base and on WikiText-2 with GPT-2 Small. LoRA hit \textbf{93.1\%} validation accuracy on SST-2 and \textbf{89.9\%} validation F1 on MRPC while only training 0.27\% of the parameters. On WikiText-2, LoRA got 24.27 perplexity compared to 23.60 for full fine-tuning, using 99.5\% fewer trainable parameters. Overall, our results back up LoRA's main claim that low-rank task updates can hold up performance while cutting way down on trainable weights.
 
 \section{Introduction}
-Large pretrained language models are expensive to adapt because full fine-tuning updates every parameter and usually requires storing a separate full model copy per task. We reproduce \emph{LoRA: Low-Rank Adaptation of Large Language Models} by Hu, Shen, Wallis, Allen-Zhu, Li, Wang, Wang, and Chen~\cite{hu2022lora}. The paper observes that downstream weight updates often have low intrinsic rank and proposes freezing pretrained weights while learning a low-rank additive update for selected matrices.
+Fine-tuning large pretrained language models is expensive because you have to update every parameter and usually store a separate full model copy per task. We reproduced \emph{LoRA: Low-Rank Adaptation of Large Language Models} by Hu et al.~\cite{hu2022lora}. The paper's key observation is that downstream weight updates tend to have low intrinsic rank, so you can freeze the pretrained weights and just learn a low-rank additive update for selected matrices.
 
-Our project reimplements LoRA directly rather than using PEFT or adapter libraries. We test whether the same efficiency-quality tradeoff appears in a smaller reproducible setting: BERT-base~\cite{devlin2019bert} on GLUE tasks SST-2 and MRPC~\cite{wang2019glue,socher2013sst,dolan2005mrpc}, and GPT-2 Small~\cite{radford2019language} on WikiText-2~\cite{merity2017wikitext}.
+We reimplemented LoRA ourselves rather than relying on PEFT or adapter libraries. We wanted to see if the same efficiency-quality tradeoff shows up in a smaller, more reproducible setting: BERT-base~\cite{devlin2019bert} on GLUE tasks SST-2 and MRPC~\cite{wang2019glue,socher2013sst,dolan2005mrpc}, and GPT-2 Small~\cite{radford2019language} on WikiText-2~\cite{merity2017wikitext}.
 
 \section{Chosen Result}
-We aimed to reproduce the paper's central empirical result: LoRA can match or approach full fine-tuning performance while training only a small number of low-rank parameters. This result is tied to the paper's low-rank update equation, $\Delta W=BA$, and its benchmark comparisons showing competitive adaptation with far fewer trainable weights~\cite{hu2022lora}.
+We tried to reproduce the paper's main empirical result: that LoRA can match or get close to full fine-tuning performance while only training a small number of low-rank parameters. This comes directly from the paper's low-rank update equation, $\Delta W=BA$, and its benchmark results showing competitive adaptation with far fewer trainable weights~\cite{hu2022lora}.
 
-We chose this result because it tests LoRA's main scientific claim rather than only a surface-level implementation detail. If task adaptation is well approximated by a low-rank update, then LoRA should remain competitive with full fine-tuning, performance should improve with rank until saturation, and the trainable-parameter budget should be much smaller.
+We picked this result because it directly tests LoRA's core claim rather than just checking implementation details. If task adaptation really is well approximated by a low-rank update, then LoRA should stay competitive with full fine-tuning, performance should go up with rank until it levels off, and the trainable parameter count should stay way smaller.
 
 \section{Methodology}
 \subsection{LoRA Layer Design}
@@ -80,20 +80,20 @@ For a frozen pretrained weight matrix $W_0\in\mathbb{R}^{d_{out}\times d_{in}}$,
   h = W_0x + \frac{\alpha}{r}BAx.
   \label{eq:lora}
 \end{equation}
-Here $r$ is the LoRA rank and $\alpha/r$ scales the update. We initialize $A$ with Kaiming uniform initialization and $B$ to zeros so that $\Delta W=0$ at the start of training. This preserves the base model's initial behavior before task-specific learning begins.
+Here $r$ is the LoRA rank and $\alpha/r$ scales the update. We initialize $A$ with Kaiming uniform and $B$ to zeros so that $\Delta W=0$ at the start of training. That way the model starts out behaving exactly like the base model before any task-specific learning kicks in.
 
-We implemented \texttt{LoRALinear} for standard \texttt{nn.Linear} modules and \texttt{LoRAConv1D} for GPT-2's \texttt{Conv1D} attention projection. Both wrappers compute the frozen base path and the low-rank residual path in parallel, then add the scaled residual.
+We implemented \texttt{LoRALinear} for standard \texttt{nn.Linear} modules and \texttt{LoRAConv1D} for GPT-2's \texttt{Conv1D} attention projection. Both wrappers run the frozen base path and the low-rank residual path in parallel, then add the scaled residual.
 
 \subsection{Injection, Freezing, and Models}
-Our \texttt{apply\_lora\_to\_model()} routine traverses the model graph and replaces modules whose names match target suffixes. For BERT-base, LoRA is inserted into the \texttt{query} and \texttt{value} projections in all transformer layers. For GPT-2 Small, LoRA is inserted into \texttt{c\_attn}, GPT-2's combined attention projection. After replacement, pretrained parameters are frozen; only \texttt{lora\_A}, \texttt{lora\_B}, and, for classification, the task head are trainable.
+Our \texttt{apply\_lora\_to\_model()} function walks the model graph and swaps out modules whose names match the target suffixes. For BERT-base, we insert LoRA into the \texttt{query} and \texttt{value} projections in every transformer layer. For GPT-2 Small, we insert it into \texttt{c\_attn}, GPT-2's combined attention projection. After swapping, we freeze all the pretrained parameters, so only \texttt{lora\_A}, \texttt{lora\_B}, and (for classification) the task head are actually trained.
 
 \subsection{Datasets, Metrics, and Training Setup}
-For classification, we evaluate SST-2 using validation accuracy and MRPC using validation F1. For language modeling, we evaluate WikiText-2 using validation perplexity. We vary $r\in\{1,4,8,16\}$ to test the low-rank capacity hypothesis.
+For classification, we look at SST-2 validation accuracy and MRPC validation F1. For language modeling, we use WikiText-2 validation perplexity. We sweep $r\in\{1,4,8,16\}$ to see how low-rank capacity affects things.
 
-For BERT-base experiments, LoRA is applied to \texttt{query,value}. For GPT-2 Small experiments, LoRA is applied to \texttt{c\_attn}. Our scripts and notebooks support these configurations and produce the reported tables and figures. Because our experiments used limited Colab compute, this is a smaller-scale reproduction: the goal is to reproduce the qualitative trend---competitive performance with far fewer trainable parameters---rather than exactly match every original paper number.
+For BERT-base we target \texttt{query,value} and for GPT-2 Small we target \texttt{c\_attn}. Our scripts and notebooks handle both setups and spit out the tables and figures in the report. Since we were working with limited Colab compute, this is a smaller-scale reproduction. The goal was to reproduce the qualitative trend (competitive performance with way fewer trainable parameters) rather than exactly matching every number from the original paper.
 
 \section{Results \& Analysis}
-Table~\ref{tab:results} summarizes the best validation metrics. On SST-2 and MRPC, LoRA outperformed our full fine-tuning baselines: $r=8$ achieved 93.1\% accuracy on SST-2 and 89.9\% F1 on MRPC while training only 0.27\% of parameters. This supports the main LoRA claim that constrained low-rank adaptation can be highly parameter-efficient.
+Table~\ref{tab:results} summarizes the best validation metrics. On both SST-2 and MRPC, LoRA beat our full fine-tuning baselines. $r=8$ hit 93.1\% accuracy on SST-2 and 89.9\% F1 on MRPC while only training 0.27\% of the parameters. That really backs up LoRA's core claim that low-rank adaptation can be very parameter-efficient.
 
 \begin{table}[H]
 \centering
@@ -127,16 +127,16 @@ Wiki-2 & Full FT & 124.4M & \textbf{23.60 ppl} \\
 \end{tabular}}
 \end{table}
 
-The main discrepancy is that our full fine-tuning baselines underperformed LoRA on the GLUE tasks. We attribute this to overfitting and optimization sensitivity: full fine-tuning updates 109.5M parameters on relatively small classification datasets, while LoRA restricts learning to a lower-dimensional subspace and acts as an implicit regularizer.
+The biggest surprise was that our full fine-tuning baselines actually underperformed LoRA on GLUE. We think this comes down to overfitting: when you update 109.5M parameters on a small classification dataset, there's not enough regularization. LoRA sidesteps this by restricting learning to a lower-dimensional subspace, which naturally limits overfitting.
 
-On WikiText-2, full fine-tuning remained slightly better: 23.60 perplexity versus 24.27 for LoRA at $r=16$. This is reasonable because language modeling may benefit from updating more of the model, and our GPT-2 setup only targeted \texttt{c\_attn}. Still, the gap was small relative to the parameter savings.
+On WikiText-2, full fine-tuning did stay slightly ahead: 23.60 perplexity versus 24.27 for LoRA at $r=16$. That makes sense since language modeling probably benefits from updating more of the model, and we only targeted \texttt{c\_attn} in GPT-2. But even then the gap was pretty small given the huge difference in parameter count.
 
-The rank ablation supports the low-rank hypothesis. Classification performance improves from $r=1$ to $r=8$ and then saturates or slightly declines at $r=16$. For WikiText-2, perplexity improves steadily through $r=16$. This suggests that useful rank depends on task type and scale: small classification tasks need few adaptation degrees of freedom, while language modeling benefits from more capacity. LoRA also reduced peak GPU memory by up to 58\% on SST-2, reinforcing its practical value.
+The rank sweep also backed up the low-rank hypothesis. On classification, performance goes up from $r=1$ to $r=8$ and then kind of levels off or even drops a bit at $r=16$. On WikiText-2, perplexity keeps improving through $r=16$. It looks like how much rank you need really depends on the task: small classification tasks don't need many degrees of freedom, while language modeling needs more capacity. LoRA also cut peak GPU memory by up to 58\% on SST-2, which is a nice practical bonus.
 
 \section{Reflections}
-This project taught us that parameter-efficient fine-tuning depends on both the mathematical idea and the implementation details. The most important choices were which modules to replace, whether base weights were truly frozen, how $A$ and $B$ were initialized, and whether the task head remained trainable.
+This project made it clear that parameter-efficient fine-tuning isn't just about the math. A lot of the work was getting the implementation details right: figuring out which modules to replace, making sure the base weights were actually frozen, initializing $A$ and $B$ correctly, and keeping the task head trainable.
 
-Our results reproduce LoRA's key trend: low-rank updates can achieve strong downstream performance with orders of magnitude fewer trainable parameters. Given more time, we would run multiple seeds, tune full fine-tuning baselines more carefully, test additional insertion targets such as key/output/MLP projections, and add LoRA weight merging to measure inference latency directly. We would also explore rank-adaptive methods that learn a per-layer rank automatically rather than fixing $r$ as a global hyperparameter.
+Our results confirm LoRA's main trend: low-rank updates can get strong downstream performance with way fewer trainable parameters. If we had more time, we'd run multiple seeds, do more careful tuning on the full fine-tuning baselines, try additional insertion targets like key/output/MLP projections, and add LoRA weight merging to test inference speed directly. We'd also be curious to try rank-adaptive methods that learn a per-layer rank on their own instead of fixing $r$ globally.
 
 {
 \begin{thebibliography}{10}
@@ -179,7 +179,7 @@ Q. Lhoest et al. Datasets: A community library for natural language processing. 
 \clearpage
 \onecolumn
 \section*{Figures}
-All figures are collected here after the 2-page narrative so the text pages remain uninterrupted and clearly within the page limit (figures excluded per the report instructions).
+All figures are collected here after the 2-page narrative to keep the text pages clean and within the page limit (figures are excluded from the limit per the report instructions).
 
 \begin{figure}[H]
 \centering
