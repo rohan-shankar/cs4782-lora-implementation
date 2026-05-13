@@ -84,7 +84,7 @@ For a frozen pretrained weight matrix $W_0\in\mathbb{R}^{d_{out}\times d_{in}}$,
 \end{equation}
 Here $r$ is the LoRA rank and $\alpha/r$ scales the update. We initialize $A$ with Kaiming uniform and $B$ to zeros so that $\Delta W=0$ at the start of training. That way the model starts out behaving exactly like the base model before any task-specific learning kicks in.
 
-We implemented \texttt{LoRALinear} for standard \texttt{nn.Linear} modules and \texttt{LoRAConv1D} for GPT-2's \texttt{Conv1D} attention projection. Both wrappers run the frozen base path and the low-rank residual path in parallel, then add the scaled residual.
+We implemented \texttt{LoRALinear} for standard \texttt{nn.Linear} modules and \texttt{LoRAConv1D} for GPT-2's \texttt{Conv1D} attention projection. Both run the frozen base path and the low-rank residual path in parallel, then add the scaled residual.
 
 \subsection{Injection, Freezing, and Models}
 Our \texttt{apply\_lora\_to\_model()} function walks the model graph and swaps out modules whose names match the target suffixes. For BERT-base, we insert LoRA into the \texttt{query} and \texttt{value} projections in every transformer layer. For GPT-2 Small, we insert it into \texttt{c\_attn}, GPT-2's combined attention projection. After swapping, we freeze all the pretrained parameters, so only \texttt{lora\_A}, \texttt{lora\_B}, and (for classification) the task head are actually trained.
@@ -129,14 +129,14 @@ Wiki-2 & Full FT & 124.4M & \textbf{23.60 ppl} \\
 \end{tabular}}
 \end{table}
 
-The biggest surprise was that our full fine-tuning baselines actually underperformed LoRA on GLUE. We think this comes down to overfitting: when you update 109.5M parameters on a small classification dataset, there's not enough regularization. LoRA sidesteps this by restricting learning to a lower-dimensional subspace, which naturally limits overfitting.
+The biggest surprise was that our full fine-tuning baselines actually underperformed LoRA on GLUE. We think this comes down to overfitting. Specifically, when you update 109.5M parameters on a small classification dataset, there's not enough regularization. LoRA sidesteps this by restricting learning to a lower-dimensional subspace, which naturally limits overfitting.
 
 On WikiText-2, full fine-tuning did stay slightly ahead: 23.60 perplexity versus 24.27 for LoRA at $r=16$. That makes sense since language modeling probably benefits from updating more of the model, and we only targeted \texttt{c\_attn} in GPT-2. But even then the gap was pretty small given the huge difference in parameter count.
 
 The rank sweep also backed up the low-rank hypothesis. On classification, performance goes up from $r=1$ to $r=8$ and then kind of levels off or even drops a bit at $r=16$. On WikiText-2, perplexity keeps improving through $r=16$. It looks like how much rank you need really depends on the task: small classification tasks don't need many degrees of freedom, while language modeling needs more capacity. LoRA also cut peak GPU memory by up to 58\% on SST-2, which is a nice practical bonus.
 
 \section{Reflections}
-This project made it clear that parameter-efficient fine-tuning isn't just about the math. A lot of the work was getting the implementation details right: figuring out which modules to replace, making sure the base weights were actually frozen, initializing $A$ and $B$ correctly, and keeping the task head trainable.
+This project showed us how mathematically impressive this paper's findings were and gave us a deeper understanding of the implementation details. For instance, figuring out which modules to replace, making sure the base weights were actually frozen, initializing $A$ and $B$ correctly, and keeping the task head trainable were all crucial steps. We also learned how to replicate papers' results, while staying in our compute budget, which taught us that we can achieve similar results as published work, without as many computational resources.
 
 Our results confirm LoRA's main trend: low-rank updates can get strong downstream performance with way fewer trainable parameters. If we had more time, we'd run multiple seeds, do more careful tuning on the full fine-tuning baselines, try additional insertion targets like key/output/MLP projections, and add LoRA weight merging to test inference speed directly. We'd also be curious to try rank-adaptive methods that learn a per-layer rank on their own instead of fixing $r$ globally.
 
@@ -181,7 +181,7 @@ Q. Lhoest et al. Datasets: A community library for natural language processing. 
 \clearpage
 \onecolumn
 \section*{Figures}
-All figures are collected here after the 2-page narrative to keep the text pages clean and within the page limit (figures are excluded from the limit per the report instructions).
+All figures are included below.
 
 \begin{figure}[H]
 \centering
